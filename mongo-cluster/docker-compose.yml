@@ -1,0 +1,128 @@
+services:
+  # ── Config Server Replica Set (3 nodes) ──
+  configsvr1:
+    image: mongo:6
+    container_name: configsvr1
+    command: mongod --configsvr --replSet configReplSet --port 27019 --bind_ip_all --wiredTigerCacheSizeGB 0.25
+    mem_limit: 512m
+    ports:
+      - "27019:27019"
+    healthcheck:
+      test: mongosh --port 27019 --eval "db.adminCommand('ping')" --quiet
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  configsvr2:
+    image: mongo:6
+    container_name: configsvr2
+    command: mongod --configsvr --replSet configReplSet --port 27019 --bind_ip_all --wiredTigerCacheSizeGB 0.25
+    mem_limit: 512m
+    healthcheck:
+      test: mongosh --port 27019 --eval "db.adminCommand('ping')" --quiet
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  configsvr3:
+    image: mongo:6
+    container_name: configsvr3
+    command: mongod --configsvr --replSet configReplSet --port 27019 --bind_ip_all --wiredTigerCacheSizeGB 0.25
+    mem_limit: 512m
+    healthcheck:
+      test: mongosh --port 27019 --eval "db.adminCommand('ping')" --quiet
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # ── Shard 1 Replica Set (3 nodes) ──
+  shard1a:
+    image: mongo:6
+    container_name: shard1a
+    command: mongod --shardsvr --replSet shard1ReplSet --port 27018 --bind_ip_all --wiredTigerCacheSizeGB 1
+    mem_limit: 1500m
+    ports:
+      - "27018:27018"
+    healthcheck:
+      test: mongosh --port 27018 --eval "db.adminCommand('ping')" --quiet
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  shard1b:
+    image: mongo:6
+    container_name: shard1b
+    command: mongod --shardsvr --replSet shard1ReplSet --port 27018 --bind_ip_all --wiredTigerCacheSizeGB 1
+    mem_limit: 1500m
+    healthcheck:
+      test: mongosh --port 27018 --eval "db.adminCommand('ping')" --quiet
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  shard1c:
+    image: mongo:6
+    container_name: shard1c
+    command: mongod --shardsvr --replSet shard1ReplSet --port 27018 --bind_ip_all --wiredTigerCacheSizeGB 1
+    mem_limit: 1500m
+    healthcheck:
+      test: mongosh --port 27018 --eval "db.adminCommand('ping')" --quiet
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # ── Shard 2 Replica Set (3 nodes) ──
+  shard2a:
+    image: mongo:6
+    container_name: shard2a
+    command: mongod --shardsvr --replSet shard2ReplSet --port 27018 --bind_ip_all --wiredTigerCacheSizeGB 1
+    mem_limit: 1500m
+    ports:
+      - "27020:27018"
+    healthcheck:
+      test: mongosh --port 27018 --eval "db.adminCommand('ping')" --quiet
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  shard2b:
+    image: mongo:6
+    container_name: shard2b
+    command: mongod --shardsvr --replSet shard2ReplSet --port 27018 --bind_ip_all --wiredTigerCacheSizeGB 1
+    mem_limit: 1500m
+    healthcheck:
+      test: mongosh --port 27018 --eval "db.adminCommand('ping')" --quiet
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  shard2c:
+    image: mongo:6
+    container_name: shard2c
+    command: mongod --shardsvr --replSet shard2ReplSet --port 27018 --bind_ip_all --wiredTigerCacheSizeGB 1
+    mem_limit: 1500m
+    healthcheck:
+      test: mongosh --port 27018 --eval "db.adminCommand('ping')" --quiet
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # ── Mongos Router ──
+  mongos:
+    image: mongo:6
+    container_name: mongos
+    command: mongos --configdb configReplSet/configsvr1:27019,configsvr2:27019,configsvr3:27019 --port 27017 --bind_ip_all
+    mem_limit: 512m
+    ports:
+      - "27017:27017"
+    depends_on:
+      configsvr1:
+        condition: service_healthy
+      configsvr2:
+        condition: service_healthy
+      configsvr3:
+        condition: service_healthy
+      shard1a:
+        condition: service_healthy
+      shard2a:
+        condition: service_healthy
