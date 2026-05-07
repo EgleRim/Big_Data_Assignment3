@@ -37,7 +37,8 @@ big_data_assignment3/
 10. [Useful Commands](#useful-commands)
 11. [Stopping and Cleaning Up](#stopping-and-cleaning-up)
 12. [Troubleshooting](#troubleshooting)
-13. [Fault Tolerance Demo (Task 5)](#fault-tolerance-demo-task-5)
+13. [Task 3 — Parallel Data Noise Filtering](#task-3--parallel-data-noise-filtering)
+14. [Fault Tolerance Demo (Task 5)](#fault-tolerance-demo-task-5)
 
 ---
 
