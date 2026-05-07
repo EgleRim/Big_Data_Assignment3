@@ -475,7 +475,7 @@ The script creates the following indexes before filtering begins:
 **On `ais_filtered` (output):**
 - `MMSI` — fast vessel lookup in filtered results
 - `(MMSI, Timestamp)` compound — for downstream time-series queries
-- `Navigational_status` — for status-based filtering in later tasks
+- `nav_status` — for status-based filtering in later tasks
 - `(Latitude, Longitude)` — for geospatial queries
 
 ---
