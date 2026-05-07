@@ -2,6 +2,25 @@
 
 This project sets up a **MongoDB sharded cluster** using Docker Compose for storing and processing AIS (Automatic Identification System) vessel data. The cluster consists of 2 shards (each with 3 replicas), a 3-node config server replica set, and a `mongos` query router — enabling parallel data insertion, horizontal scaling, and **fault tolerance** (if one node fails, another replica takes over automatically).
 
+
+---
+
+## Project Files Reference
+
+```
+big_data_assignment3/
+├── parallel_insert.py            # Task 2 main: parallel CSV insertion (csv module + generators)
+├── noise_filtering.py            # Task 3: AIS noise filtering and data cleaning pipeline
+├── pyproject.toml                # Python project config
+├── README.md                     # This file
+├── aisdk-2026-04-18.csv          # AIS dataset (download separately)
+└── mongo-cluster/
+    ├── docker-compose.yml        # 10-container sharded cluster (with memory limits)
+    ├── setup_and_insert.py       # Test-data inserter (1000 synthetic docs) — for pipeline verification
+    ├── reset_and_insert.py       # Earlier single-threaded reference inserter
+    └── clear_db.py               # Helper: deletes all docs from ais_data
+
+
 ---
 
 ## Table of Contents
@@ -410,20 +429,103 @@ docker compose down -v
 
 ---
 
-## Project Files Reference
+## Task 3 — Parallel Data Noise Filtering
 
+The `noise_filtering.py` script reads from the `ais_data` collection populated by Task 2, applies parallel noise filtering across all vessels, and writes only clean records to a separate `ais_filtered` collection.
+
+- **One MongoClient per worker thread** — each parallel task creates and closes its own connection, matching the Task 2 pattern
+- **Per-vessel parallelism** — distinct MMSIs are partitioned into batches, each batch processed by one worker
+- **Six filter categories** applied at both vessel and record level
+- **Indexes created automatically** before filtering for efficient per-vessel queries
+- **Output stored in a separate collection** (`ais_filtered`) as required by the assignment
+
+---
+
+### How it Works
+
+1. All indexes on `ais_data` and `ais_filtered` are dropped and recreated fresh to avoid conflicts on re-runs.
+2. All distinct MMSI values are fetched from `ais_data` and partitioned into batches.
+3. Each worker thread receives a batch of MMSIs and opens its own `MongoClient`.
+4. For each MMSI the worker first checks the MMSI itself (Categories 1 & 4), then counts its records (Category 5), then fetches and validates each record individually (Categories 2, 3, 6).
+5. Records that pass all filters are bulk-inserted into `ais_filtered`.
+
+---
+
+### Noise Filter Categories
+
+| Category | What is filtered | Why |
+|----------|-----------------|-----|
+| **Cat 1** | Invalid MMSI patterns — wrong length, non-numeric, known bad values (`000000000`, `123456789`, all-same-digit, etc.) | Unconfigured transponders produce a single massive MMSI bucket that crashes worker memory |
+| **Cat 2** | Coordinates outside valid ranges or exactly `(0.0, 0.0)` — "Null Island" | AIS devices report `0°N 0°E` when GPS is not locked; including these creates false teleportation events |
+| **Cat 3** | Missing or unparseable timestamps | Records without a valid timestamp cannot be placed in a vessel timeline |
+| **Cat 4** | MMSIs with prefix `992` (base stations), `970` (SART), `111` (SAR aircraft) | Shore infrastructure transmits on AIS but has no vessel movement data |
+| **Cat 5** | Vessels with fewer than 100 total records | Too few data points to form a meaningful vessel track |
+| **Cat 6** | Records missing required fields: `MMSI`, `Latitude`, `Longitude`, `ROT`, `SOG`, `COG`, `Heading` | Incomplete records cannot be used for analysis |
+
+---
+
+### Indexes Created
+
+The script creates the following indexes before filtering begins:
+
+**On `ais_data` (source):**
+- `MMSI` — speeds up per-vessel `count_documents()` and `find()` queries
+- `(MMSI, Timestamp)` compound — efficient time-sorted per-vessel access
+
+**On `ais_filtered` (output):**
+- `MMSI` — fast vessel lookup in filtered results
+- `(MMSI, Timestamp)` compound — for downstream time-series queries
+- `Navigational_status` — for status-based filtering in later tasks
+- `(Latitude, Longitude)` — for geospatial queries
+
+---
+
+### Running the Filter
+
+Make sure Task 2 has been run first and `ais_data` contains documents. Then:
+
+```bash
+python noise_filtering.py --workers 4 --batch-size 20
 ```
-big_data_assignment3/
-├── parallel_insert.py            # Task 2 main: parallel CSV insertion (csv module + generators)
-├── pyproject.toml                # Python project config
-├── README.md                     # This file
-├── aisdk-2026-04-18.csv          # AIS dataset (download separately)
-└── mongo-cluster/
-    ├── docker-compose.yml        # 10-container sharded cluster (with memory limits)
-    ├── setup_and_insert.py       # Test-data inserter (1000 synthetic docs) — for pipeline verification
-    ├── reset_and_insert.py       # Earlier single-threaded reference inserter
-    └── clear_db.py               # Helper: deletes all docs from ais_data
+
+
+**Arguments:**
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--workers` | `4` | Number of parallel worker threads |
+| `--batch-size` | `20` | Number of MMSIs processed per worker batch |
+
+> **Note:** If you re-run `noise_filtering.py` without clearing `ais_filtered` first, the script will drop and recreate indexes automatically but will insert on top of existing filtered data. Drop the collection first in mongosh for a clean run:
+> ```js
+> use vesselDB
+> db.ais_filtered.drop()
+> ```
+---
+
+### Verify Filtered Results
+
+```bash
+docker exec -it mongos mongosh --port 27017
 ```
+
+```javascript
+use vesselDB
+db.ais_filtered.countDocuments({})           // Total clean records
+db.ais_filtered.distinct("MMSI").length      // Number of clean vessels
+db.ais_filtered.findOne()                    // Inspect a sample record
+db.ais_filtered.getShardDistribution()       // Check spread across shards
+```
+
+---
+
+### Troubleshooting
+
+| Problem | Solution |
+|---------|----------|
+| `IndexKeySpecsConflict` on startup | The script now drops indexes automatically — this should not occur. If it does, run `db.ais_filtered.dropIndexes()` manually in mongosh. |
+| `Records kept: 0` but DB shows records | A previous run left records in `ais_filtered`. Drop the collection and rerun. |
+| `No data found in source collection` | Task 2 has not been run yet, or the collection name differs. Verify with `db.ais_data.countDocuments({})` in mongosh. |
 
 ---
 
